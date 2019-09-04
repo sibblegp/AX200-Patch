@@ -1,0 +1,123 @@
+commit 2e22c0cace3cdab677c412f791697bebd0a22819
+Author: Alex Wied <alex@radix.bio>
+Date:   Wed Aug 21 13:32:46 2019 -0400
+
+    Add DKMS support
+
+diff --git a/Makefile.real b/Makefile.real
+index 1493f22e5..bc0e72a93 100644
+--- a/Makefile.real
++++ b/Makefile.real
+@@ -127,7 +127,10 @@ uninstall:
+ 	@echo Reboot.
+ 	@echo
+ 
++EXCLUDE_CLEAN := kconf/zconf.lex.c kconf/zconf.tab.c
+ .PHONY: clean
+ clean:
++	@$(foreach f, $(EXCLUDE_CLEAN), mv $(f) $(f).orig;)
+ 	@$(MAKE) -f Makefile.build clean
+ 	@$(MAKE) -C kconf clean
++	@$(foreach f, $(EXCLUDE_CLEAN), mv $(f).orig $(f);)
+diff --git a/backport-include/linux/compiler.h b/backport-include/linux/compiler.h
+index 53c069df1..adc5a2403 100644
+--- a/backport-include/linux/compiler.h
++++ b/backport-include/linux/compiler.h
+@@ -92,4 +92,8 @@ static __always_inline void __write_once_size(volatile void *p, void *res, int s
+ #define OPTIMIZER_HIDE_VAR(var) barrier()
+ #endif
+ 
++#ifndef __copy
++#define __copy(x)
++#endif
++
+ #endif /* __BACKPORT_LINUX_COMPILER_H */
+diff --git a/backport-include/linux/module.h b/backport-include/linux/module.h
+index 1a2c82f45..877491eec 100644
+--- a/backport-include/linux/module.h
++++ b/backport-include/linux/module.h
+@@ -33,7 +33,7 @@ extern void backport_dependency_symbol(void);
+ 		backport_dependency_symbol();				\
+ 		return initfn();					\
+ 	}								\
+-	int init_module(void) __attribute__((alias("__init_backport")));\
++	int init_module(void) __copy(__init_backport) __attribute__((alias("__init_backport")));\
+ 	BACKPORT_MOD_VERSIONS
+ 
+ /*
+@@ -58,7 +58,7 @@ extern void backport_dependency_symbol(void);
+ 		exitfn();						\
+ 		rcu_barrier();						\
+ 	}								\
+-	void cleanup_module(void) __attribute__((alias("__exit_compat")));
++	void cleanup_module(void) __copy(__exit_compat) __attribute__((alias("__exit_compat")));
+ #endif
+ 
+ #if LINUX_VERSION_IS_LESS(3,3,0)
+diff --git a/dkms.conf b/dkms.conf
+new file mode 100644
+index 000000000..43d0eedfe
+--- /dev/null
++++ b/dkms.conf
+@@ -0,0 +1,41 @@
++PACKAGE_NAME="backport-iwlwifi"
++PACKAGE_VERSION="git"
++AUTOINSTALL="yes"
++
++BUILT_MODULE_NAME[0]="compat"
++BUILT_MODULE_LOCATION[0]="compat"
++DEST_MODULE_LOCATION[0]="/updates"
++
++BUILT_MODULE_NAME[1]="iwlwifi"
++BUILT_MODULE_LOCATION[1]="drivers/net/wireless/intel/iwlwifi"
++DEST_MODULE_LOCATION[1]="/updates"
++
++BUILT_MODULE_NAME[2]="iwlxvt"
++BUILT_MODULE_LOCATION[2]="drivers/net/wireless/intel/iwlwifi/xvt"
++DEST_MODULE_LOCATION[2]="/updates"
++
++BUILT_MODULE_NAME[3]="iwlmvm"
++BUILT_MODULE_LOCATION[3]="drivers/net/wireless/intel/iwlwifi/mvm"
++DEST_MODULE_LOCATION[3]="/updates"
++
++BUILT_MODULE_NAME[4]="mac80211"
++BUILT_MODULE_LOCATION[4]="net/mac80211"
++DEST_MODULE_LOCATION[4]="/updates"
++
++BUILT_MODULE_NAME[5]="cfg80211"
++BUILT_MODULE_LOCATION[5]="net/wireless"
++DEST_MODULE_LOCATION[5]="/updates"
++
++# Find out how many CPU cores can be use if we pass appropriate -j option to make.
++# DKMS could use all cores on multicore systems to build the kernel module.
++num_cpu_cores()
++{
++  if [ -x /usr/bin/nproc ]; then
++    nproc
++  else
++    echo "1"
++  fi
++}
++
++MAKE="'make' -j$(num_cpu_cores) KLIB=/lib/modules/$kernelver"
++CLEAN="'make' clean"
+diff --git a/kconf/confdata.c b/kconf/confdata.c
+index 297b079ae..ed1ff5d7c 100644
+--- a/kconf/confdata.c
++++ b/kconf/confdata.c
+@@ -770,10 +770,13 @@ int conf_write(const char *name)
+ 	} else
+ 		basename = conf_get_configname();
+ 
+-	sprintf(newname, "%s%s", dirname, basename);
++	if (snprintf(newname, sizeof newname, "%s%s", dirname, basename) < 0)
++		return 1;
++
+ 	env = getenv("KCONFIG_OVERWRITECONFIG");
+ 	if (!env || !*env) {
+-		sprintf(tmpname, "%s.tmpconfig.%d", dirname, (int)getpid());
++		if (snprintf(tmpname, sizeof tmpname, "%s.tmpconfig.%d", dirname, (int)getpid()) < 0)
++			return 1;
+ 		out = fopen(tmpname, "w");
+ 	} else {
+ 		*tmpname = 0;
