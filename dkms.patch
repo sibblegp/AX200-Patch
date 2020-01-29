@@ -40,8 +40,8 @@ index 1a2c82f45..877491eec 100644
  		backport_dependency_symbol();				\
  		return initfn();					\
  	}								\
--	int init_module(void) __attribute__((alias("__init_backport")));\
-+	int init_module(void) __copy(__init_backport) __attribute__((alias("__init_backport")));\
+-	int init_module(void) __attribute__((cold,alias("__init_backport")));\
++	int init_module(void) __copy(__init_backport) __attribute__((cold,alias("__init_backport")));\
  	BACKPORT_MOD_VERSIONS
  
  /*
@@ -49,8 +49,8 @@ index 1a2c82f45..877491eec 100644
  		exitfn();						\
  		rcu_barrier();						\
  	}								\
--	void cleanup_module(void) __attribute__((alias("__exit_compat")));
-+	void cleanup_module(void) __copy(__exit_compat) __attribute__((alias("__exit_compat")));
+-	void cleanup_module(void) __attribute__((cold,alias("__exit_compat")));
++	void cleanup_module(void) __copy(__exit_compat) __attribute__((cold,alias("__exit_compat")));
  #endif
  
  #if LINUX_VERSION_IS_LESS(3,3,0)
